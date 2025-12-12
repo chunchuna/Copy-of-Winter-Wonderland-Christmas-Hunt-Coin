@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Winter Wonderland: Christmas Hunt</title>
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎄</text></svg>">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Mountains+of+Christmas:wght@400;700&family=Nunito:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+      body {
+        font-family: 'Nunito', sans-serif;
+        background-color: #0f172a;
+        color: white;
+        overflow: hidden;
+        touch-action: none;
+      }
+      .font-christmas {
+        font-family: 'Mountains of Christmas', cursive;
+      }
+      .animate-float {
+        animation: float 3s ease-in-out infinite;
+      }
+      @keyframes float {
+        0% { transform: translateY(0px); }
+        50% { transform: translateY(-10px); }
+        100% { transform: translateY(0px); }
+      }
+      @keyframes glow {
+        0% { filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.5)); }
+        50% { filter: drop-shadow(0 0 15px rgba(255, 215, 0, 0.8)); }
+        100% { filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.5)); }
+      }
+      .tree-glow {
+        animation: glow 4s infinite alternate;
+      }
+      
+      /* Loading Screen */
+      #loading-screen {
+        position: fixed;
+        inset: 0;
+        background: linear-gradient(to bottom, #0f172a, #1e293b);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        font-family: 'Mountains of Christmas', cursive;
+        text-align: center;
+        padding: 20px;
+        transition: opacity 0.5s ease-out;
+      }
+      .loading-progress-container {
+        width: 300px;
+        max-width: 80%;
+        height: 10px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 999px;
+        overflow: hidden;
+        margin-bottom: 1rem;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+      .loading-progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #ef4444, #22c55e);
+        width: 0%;
+        transition: width 0.2s linear;
+      }
+    </style>
+
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "@google/genai": "https://esm.sh/@google/genai",
+    "trystero": "https://esm.sh/trystero@0.19.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/"
+  }
+}
+</script>
+    <script>window.process = { env: { NODE_ENV: 'production' } };</script>
+  </head>
+  <body>
+    <div id="root">
+        <div id="loading-screen">
+            <div class="text-4xl text-yellow-300 mb-8 animate-float">🎄 Winter Wonderland 🎄</div>
+            <div class="loading-progress-container">
+                <div id="progress-bar" class="loading-progress-bar"></div>
+            </div>
+            <div id="loading-text" class="text-gray-300 mt-4 text-xl">Preparing holiday magic...</div>
+        </div>
+    </div>
+
+    <script>
+      (function() {
+        const tips = ["Counting snowflakes...", "Waking up the elves...", "Polishing Rudolph's nose...", "Lighting the fire..."];
+        const progressBar = document.getElementById('progress-bar');
+        const loadingText = document.getElementById('loading-text');
+        const loadingScreen = document.getElementById('loading-screen');
+        let progress = 0;
+        const progressInterval = setInterval(() => {
+          progress = Math.min(progress + 2, 95); 
+          if (progressBar) progressBar.style.width = `${progress}%`;
+        }, 50);
+        const tipInterval = setInterval(() => {
+          if (loadingText) loadingText.textContent = tips[Math.floor(Math.random() * tips.length)];
+        }, 1200);
+        window.finishLoading = () => {
+          clearInterval(progressInterval);
+          clearInterval(tipInterval);
+          if (progressBar) progressBar.style.width = '100%';
+          if (loadingScreen) { loadingScreen.style.opacity = '0'; setTimeout(() => loadingScreen.remove(), 500); }
+        };
+      })();
+    </script>
+
+    <script type="text/babel" data-type="module" data-presets="react,typescript">
+      import React, { useState, useEffect, useRef } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { joinRoom } from 'trystero';
+      import { GoogleGenAI, Type } from '@google/genai';
+
+      // --- CONSTANTS ---
+      const WORLD_WIDTH = 1000;
+      const WORLD_HEIGHT = 800;
+      const SPEED = 0.8; // Reduced speed for cozy atmosphere
+      const SAVE_KEY = 'winter_wonderland_v1_save';
+
+      const ZoneId = {
+        TOWN_SQUARE: 'TOWN_SQUARE',
+        MYSTIC_FOREST: 'MYSTIC_FOREST'
+      };
+
+      const AVATARS = ['🎅', '🧝', '🦌', '⛄', '🤶', '🦊', '🐧', '🐻'];
+
+      // --- DECORATION & ZONE DATA ---
+      
+      const CHAIRS = [];
+      // Generate 11 chairs around a table (approx center 500, 400)
+      // Table is approx 400w x 100h
+      // Top row (5 chairs)
+      for(let i=0; i<5; i++) CHAIRS.push({ id: `chair_t_${i}`, x: 340 + i*80, y: 350, label: 'Sit', icon: '🪑', type: 'CHAIR', range: 40 });
+      // Bottom row (5 chairs)
+      for(let i=0; i<5; i++) CHAIRS.push({ id: `chair_b_${i}`, x: 340 + i*80, y: 450, label: 'Sit', icon: '🪑', type: 'CHAIR', range: 40 });
+      // Right Head (1 chair)
+      CHAIRS.push({ id: `chair_r`, x: 740, y: 400, label: 'Sit', icon: '🪑', type: 'CHAIR', range: 40 });
+
+      const ZONES = {
+        [ZoneId.TOWN_SQUARE]: {
+          id: ZoneId.TOWN_SQUARE,
+          name: "The Great Hall",
+          description: "Gather around the table for warmth and stories.",
+          width: 1000,
+          height: 800,
+          // Darker, cozy radial gradient
+          backgroundPattern: 'radial-gradient(circle at 50% 50%, #4a3b3b 0%, #2a1d1d 60%, #0f0505 100%)', 
+          decorations: [
+            // The Long Table (Visual Only)
+            { type: 'RECT', x: 500, y: 400, w: 420, h: 80, color: '#5D4037', border: '#3E2723' },
+            // Glowing Trees
+            { type: 'TREE', x: 100, y: 100 },
+            { type: 'TREE', x: 900, y: 100 },
+            { type: 'TREE', x: 100, y: 700 },
+            { type: 'TREE', x: 900, y: 700 },
+            { type: 'TREE', x: 250, y: 50 },
+            { type: 'TREE', x: 750, y: 50 },
+          ],
+          interactables: [
+             ...CHAIRS,
+            { id: 'portal_forest', x: 500, y: 750, label: 'Go Outside', icon: '🌲', type: 'PORTAL', targetZone: ZoneId.MYSTIC_FOREST, range: 80 },
+          ]
+        },
+        [ZoneId.MYSTIC_FOREST]: {
+          id: ZoneId.MYSTIC_FOREST,
+          name: "Snowy Backyard",
+          description: "Fresh snow and hidden secrets.",
+          width: 1000,
+          height: 800,
+          backgroundPattern: 'radial-gradient(circle, #e0f2fe 0%, #0c4a6e 100%)',
+          decorations: [],
+          interactables: [
+            { id: 'portal_square', x: 500, y: 100, label: 'Enter Hall', icon: '🏠', type: 'PORTAL', targetZone: ZoneId.TOWN_SQUARE, range: 80 },
+          ]
+        }
+      };
+
+      const HIDDEN_EGGS = [
+        { id: 'egg_1', zoneId: ZoneId.TOWN_SQUARE, x: 80, y: 720, found: false },
+        { id: 'egg_2', zoneId: ZoneId.TOWN_SQUARE, x: 920, y: 720, found: false },
+        { id: 'egg_3', zoneId: ZoneId.MYSTIC_FOREST, x: 200, y: 400, found: false },
+      ];
+
+      // --- SERVICES ---
+
+      const getApiKey = () => (typeof process !== 'undefined' && process.env && process.env.API_KEY) ? process.env.API_KEY : '';
+      let ai = null;
+      const apiKey = getApiKey();
+      if (apiKey) ai = new GoogleGenAI({ apiKey });
+
+      const ROOM_ID = 'christmas_hall_lobby_v6';
+      
+      class NetworkService {
+        constructor() {
+          this.room = joinRoom({ appId: 'christmas-hunt-game' }, ROOM_ID);
+          this.onPlayerMoved = null;
+          this.onPeerJoined = null;
+          this.onPlayerLeft = null;
+          this.onChatMessage = null;
+          this.onScoreUpdate = null;
+
+          const [sendMove, getMove] = this.room.makeAction('move');
+          const [sendChat, getChat] = this.room.makeAction('chat');
+          const [sendScore, getScore] = this.room.makeAction('score');
+
+          this.sendMoveAction = sendMove;
+          this.sendChatAction = sendChat;
+          this.sendScoreAction = sendScore;
+
+          this.room.onPeerJoin(peerId => this.onPeerJoined && this.onPeerJoined(peerId));
+          this.room.onPeerLeave(peerId => this.onPlayerLeft && this.onPlayerLeft(peerId));
+          getMove((data, peerId) => this.onPlayerMoved && this.onPlayerMoved({ ...data, id: peerId, isCurrentUser: false }));
+          getChat(data => this.onChatMessage && this.onChatMessage(data));
+          getScore((data, peerId) => this.onScoreUpdate && this.onScoreUpdate(peerId, data.score));
+        }
+        broadcastMove(player) { this.sendMoveAction({ x: player.x, y: player.y, name: player.name, avatar: player.avatar, score: player.score, isSitting: player.isSitting }); }
+        broadcastChat(msg) { this.sendChatAction(msg); }
+        broadcastScore(pid, score) { this.sendScoreAction({ id: pid, score }); }
+        getMyId() { return this.room.selfId; }
+      }
+
+      // --- COMPONENTS ---
+
+      const LoginScreen = ({ onJoin }) => {
+        const [name, setName] = useState("");
+        const [avatarIndex, setAvatarIndex] = useState(0);
+        const changeAvatar = (dir) => {
+          setAvatarIndex(prev => {
+             let next = prev + dir;
+             if (next < 0) next = AVATARS.length - 1;
+             if (next >= AVATARS.length) next = 0;
+             return next;
+          });
+        };
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 text-white font-christmas bg-[url('https://images.unsplash.com/photo-1544604921-65715875883a?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center">
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+            <div className="relative bg-slate-800/90 border-4 border-yellow-500/50 rounded-3xl p-8 max-w-md w-full text-center shadow-2xl">
+               <h1 className="text-5xl text-yellow-400 mb-2 drop-shadow-lg">The Great Hall</h1>
+               <p className="text-gray-300 font-sans mb-8">Join the Christmas Feast & Hunt</p>
+               <div className="mb-6">
+                 <label className="block text-left text-sm text-yellow-200 mb-1 font-sans font-bold ml-1">YOUR AVATAR</label>
+                 <div className="flex items-center justify-center space-x-4 bg-slate-700/50 rounded-xl p-4">
+                    <button onClick={() => changeAvatar(-1)} className="text-3xl hover:scale-125 transition">◀️</button>
+                    <div className="text-6xl animate-bounce filter drop-shadow-lg">{AVATARS[avatarIndex]}</div>
+                    <button onClick={() => changeAvatar(1)} className="text-3xl hover:scale-125 transition">▶️</button>
+                 </div>
+               </div>
+               <div className="mb-8">
+                  <label className="block text-left text-sm text-yellow-200 mb-1 font-sans font-bold ml-1">YOUR NAME</label>
+                  <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name..." className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-xl focus:outline-none focus:border-yellow-400 text-white font-sans" maxLength={12} />
+               </div>
+               <button onClick={() => name.trim() && onJoin(name.trim(), AVATARS[avatarIndex])} disabled={!name.trim()} className={`w-full py-4 rounded-xl text-2xl font-bold shadow-lg transition ${!name.trim() ? 'bg-gray-600 opacity-50' : 'bg-red-600 hover:bg-red-500'}`}>ENTER HALL 🎄</button>
+            </div>
+          </div>
+        );
+      };
+
+      const Leaderboard = ({ players }) => {
+        const sorted = [...players].sort((a, b) => b.score - a.score);
+        return (
+          <div className="absolute top-4 left-4 z-50 w-72 bg-slate-900/80 backdrop-blur-md border border-yellow-500/30 rounded-xl overflow-hidden shadow-2xl text-white">
+            <div className="bg-gradient-to-r from-red-800 to-red-600 p-3 flex justify-between items-center"><h2 className="font-christmas text-xl font-bold text-yellow-100">🏆 Top Elves</h2></div>
+            <ul className="divide-y divide-white/10 max-h-64 overflow-y-auto">
+              {sorted.map((p, i) => (
+                <li key={p.id} className={`flex justify-between p-3 ${p.isCurrentUser ? 'bg-yellow-500/20' : ''}`}>
+                  <div className="flex items-center space-x-3"><span className={`font-bold w-4 ${i < 3 ? 'text-yellow-400' : 'text-slate-400'}`}>{i + 1}</span><span className="text-xl">{p.avatar}</span><span className="text-sm font-semibold">{p.name}</span></div>
+                  <span className="text-yellow-400 font-mono font-bold">{p.score}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      };
+
+      const GameWorld = ({ zone, player, otherPlayers, hiddenEggs, onMovePlayer, onInteract, onFoundEgg }) => {
+        const [keys, setKeys] = useState({});
+        const requestRef = useRef(0);
+
+        useEffect(() => {
+          const down = e => { if (e.target.tagName !== 'INPUT') setKeys(k => ({ ...k, [e.code]: true })); };
+          const up = e => setKeys(k => ({ ...k, [e.code]: false }));
+          window.addEventListener('keydown', down); window.addEventListener('keyup', up);
+          return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
+        }, []);
+
+        const animate = () => {
+          let dx = 0, dy = 0;
+          if (keys['KeyW'] || keys['ArrowUp']) dy -= SPEED;
+          if (keys['KeyS'] || keys['ArrowDown']) dy += SPEED;
+          if (keys['KeyA'] || keys['ArrowLeft']) dx -= SPEED;
+          if (keys['KeyD'] || keys['ArrowRight']) dx += SPEED;
+
+          if (player.isSitting) {
+             // If trying to move while sitting, stand up
+             if (dx !== 0 || dy !== 0) {
+                // Break sitting, nudge slightly down
+                onMovePlayer(player.x, player.y + 10, false); 
+             }
+          } else {
+             if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+             if (dx !== 0 || dy !== 0) {
+               const nextX = Math.max(20, Math.min(zone.width - 20, player.x + dx));
+               const nextY = Math.max(20, Math.min(zone.height - 20, player.y + dy));
+               onMovePlayer(nextX, nextY, false);
+               hiddenEggs.forEach(egg => { if (egg.zoneId === zone.id && !egg.found && Math.hypot(egg.x - nextX, egg.y - nextY) < 40) onFoundEgg(egg.id); });
+             }
+          }
+          requestRef.current = requestAnimationFrame(animate);
+        };
+
+        useEffect(() => { requestRef.current = requestAnimationFrame(animate); return () => cancelAnimationFrame(requestRef.current); }, [keys, player, zone]);
+
+        const getNearest = () => {
+          let n = null, d = Infinity;
+          zone.interactables.forEach(i => { const dist = Math.hypot(i.x - player.x, i.y - player.y); if (dist < i.range && dist < d) { d = dist; n = i; } });
+          return n;
+        };
+        const nearest = getNearest();
+
+        useEffect(() => {
+          const handler = (e) => { if (e.code === 'KeyE' && nearest) onInteract(nearest); };
+          window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
+        }, [nearest, onInteract]);
+
+        const camX = -player.x + window.innerWidth / 2;
+        const camY = -player.y + window.innerHeight / 2;
+
+        const renderPlayer = (p) => (
+          <div key={p.id} className="absolute flex flex-col items-center transition-transform duration-100 ease-linear z-20" style={{ transform: `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)` }}>
+            {p.currentMessage && <div className="absolute -top-16 bg-white text-black px-3 py-2 rounded-xl text-sm font-bold shadow-lg animate-float z-30">{p.currentMessage}</div>}
+            <span className={`text-[10px] font-bold mb-1 px-1 rounded bg-black/50 ${p.isCurrentUser ? 'text-yellow-300' : 'text-white'}`}>{p.name} {p.isSitting ? '(Sitting)' : ''}</span>
+            <div className={`text-4xl filter drop-shadow-lg ${p.isSitting ? 'translate-y-2 scale-90' : ''}`}>{p.avatar}</div>
+          </div>
+        );
+
+        return (
+          <div className="w-full h-full bg-black overflow-hidden relative">
+            <div className="will-change-transform" style={{ transform: `translate(${camX}px, ${camY}px)`, width: zone.width, height: zone.height, background: zone.backgroundPattern }}>
+              {/* Floor Grid */}
+              <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(white 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+              
+              {/* Decorations */}
+              {zone.decorations && zone.decorations.map((d, i) => {
+                 if (d.type === 'RECT') return <div key={i} className="absolute shadow-2xl" style={{ left: d.x - d.w/2, top: d.y - d.h/2, width: d.w, height: d.h, backgroundColor: d.color, border: `4px solid ${d.border}`, borderRadius: '10px' }} />;
+                 if (d.type === 'TREE') return <div key={i} className="absolute text-6xl tree-glow" style={{ left: d.x - 30, top: d.y - 60 }}>🎄</div>;
+                 return null;
+              })}
+
+              {/* Interactables */}
+              {zone.interactables.map(item => (
+                <div key={item.id} className="absolute flex flex-col items-center justify-center transform -translate-x-1/2 -translate-y-1/2" style={{ left: item.x, top: item.y }}>
+                   <div className={`text-4xl transition-transform ${item.type==='CHAIR' ? 'text-3xl' : 'animate-pulse hover:scale-125 cursor-pointer'}`} onClick={() => onInteract(item)}>{item.icon}</div>
+                   {item.type !== 'CHAIR' && <span className="mt-2 bg-black/60 px-2 py-1 rounded text-white text-xs">{item.label}</span>}
+                   <div className={`absolute border-2 border-yellow-400/30 rounded-full animate-ping ${item.type === 'CHAIR' ? 'hidden' : ''}`} style={{ width: item.range * 2, height: item.range * 2 }} />
+                </div>
+              ))}
+              
+              {/* Eggs */}
+              {hiddenEggs.filter(e => e.zoneId === zone.id && !e.found).map(egg => (
+                <div key={egg.id} className="absolute text-2xl animate-bounce cursor-pointer hover:scale-125" style={{ left: egg.x, top: egg.y }} onClick={() => onFoundEgg(egg.id)}>🎁</div>
+              ))}
+              
+              {otherPlayers.map(renderPlayer)}
+              {renderPlayer(player)}
+            </div>
+            {nearest && <div className="absolute bottom-24 left-1/2 -translate-x-1/2 text-white font-bold text-xl animate-bounce drop-shadow-md bg-black/50 px-4 py-2 rounded-full border border-white/20">Press <span className="text-yellow-400">E</span> to {nearest.label}</div>}
+          </div>
+        );
+      };
+
+      const App = () => {
+        const net = useRef(null);
+        const playerRef = useRef(null);
+        const [gameState, setGameState] = useState('LOADING');
+        const [player, setPlayer] = useState({ id: 'init', name: 'Player', score: 0, isCurrentUser: true, avatar: '🎅', x: WORLD_WIDTH/2, y: WORLD_HEIGHT/2, isSitting: false });
+        const [eggs, setEggs] = useState(HIDDEN_EGGS);
+        const [others, setOthers] = useState([]);
+        const [msgs, setMsgs] = useState([]);
+        const [notif, setNotif] = useState(null);
+        const [zoneId, setZoneId] = useState(ZoneId.TOWN_SQUARE);
+
+        useEffect(() => {
+          if (window.finishLoading) window.finishLoading();
+          const saved = localStorage.getItem(SAVE_KEY);
+          if (saved) {
+             const d = JSON.parse(saved);
+             setPlayer(p => ({ ...p, name: d.name, score: d.score, avatar: d.avatar }));
+             setEggs(prev => prev.map(e => ({ ...e, found: d.foundEggIds?.includes(e.id) || false })));
+             showNotif(`Welcome back, ${d.name}!`);
+             initNet(); setGameState('PLAYING');
+          } else setGameState('LOGIN');
+        }, []);
+
+        useEffect(() => {
+          if (gameState === 'PLAYING' && player.id !== 'init') {
+            localStorage.setItem(SAVE_KEY, JSON.stringify({ name: player.name, score: player.score, avatar: player.avatar, foundEggIds: eggs.filter(e => e.found).map(e => e.id) }));
+          }
+          playerRef.current = player;
+        }, [player, eggs, gameState]);
+
+        const initNet = () => {
+           net.current = new NetworkService();
+           setPlayer(p => ({ ...p, id: net.current.getMyId() }));
+           setTimeout(() => net.current.broadcastMove(playerRef.current), 1000);
+           net.current.onPlayerMoved = p => setOthers(prev => { const i = prev.findIndex(x => x.id === p.id); if (i>=0) { const n=[...prev]; n[i]={...n[i], ...p}; return n; } return [...prev, p]; });
+           net.current.onPeerJoined = () => { net.current.broadcastMove(playerRef.current); showNotif("New elf arrived!"); };
+           net.current.onPlayerLeft = id => setOthers(prev => prev.filter(p => p.id !== id));
+           net.current.onChatMessage = msg => { setMsgs(m => [...m, msg]); setOthers(o => o.map(p => p.id === msg.senderId ? { ...p, currentMessage: msg.text } : p)); };
+           net.current.onScoreUpdate = (id, s) => setOthers(o => o.map(p => p.id === id ? { ...p, score: s } : p));
+        };
+
+        const handleMove = (x, y, sitting=false) => {
+          setPlayer(p => {
+             const u = { ...p, x, y, isSitting: sitting };
+             if (net.current) net.current.broadcastMove(u);
+             return u;
+          });
+        };
+
+        const handleInteract = (t) => {
+           if (t.type === 'PORTAL') { setZoneId(t.targetZone); handleMove(WORLD_WIDTH/2, WORLD_HEIGHT/2); showNotif(`Entered ${t.label}`); }
+           else if (t.type === 'CHAIR') { handleMove(t.x, t.y - 5, true); }
+        };
+
+        const sendMsg = (txt) => {
+          setPlayer(p => ({ ...p, currentMessage: txt }));
+          const m = { id: Date.now(), senderId: player.id, senderName: player.name, text: txt };
+          setMsgs(prev => [...prev, m]);
+          net.current.broadcastChat(m);
+          setTimeout(() => setPlayer(p => ({ ...p, currentMessage: undefined })), 5000);
+        };
+
+        const showNotif = (t) => { setNotif(t); setTimeout(() => setNotif(null), 3000); };
+        const foundEgg = (id) => {
+           setEggs(e => e.map(x => x.id === id ? { ...x, found: true } : x));
+           setPlayer(p => { const s = p.score + 10000; net.current.broadcastScore(p.id, s); return { ...p, score: s }; });
+           showNotif("🌟 SECRET FOUND! +10,000 PTS! 🌟");
+        };
+
+        if (gameState === 'LOGIN') return <LoginScreen onJoin={(n, a) => { setPlayer(p => ({ ...p, name: n, avatar: a })); initNet(); setGameState('PLAYING'); }} />;
+        if (gameState === 'LOADING') return null;
+
+        return (
+          <div className="w-screen h-screen bg-black overflow-hidden relative text-white">
+             <GameWorld zone={ZONES[zoneId]} player={player} otherPlayers={others} hiddenEggs={eggs} onMovePlayer={handleMove} onInteract={handleInteract} onFoundEgg={foundEgg} />
+             <div className="absolute inset-0 pointer-events-none">
+                <div className="pointer-events-auto"><Leaderboard players={[player, ...others]} /></div>
+                
+                {/* Chat Input */}
+                <div className="absolute bottom-4 left-4 pointer-events-auto w-[350px]">
+                   <div className="h-40 overflow-y-auto mb-2 text-sm text-shadow-md bg-gradient-to-t from-black/80 to-transparent p-2 rounded">{msgs.map((m,i) => <div key={i}><span className="text-yellow-400 font-bold">{m.senderName}:</span> {m.text}</div>)}</div>
+                   <input type="text" placeholder="Press Enter to chat..." className="w-full bg-black/60 rounded-full px-4 py-2 border border-white/20 focus:border-yellow-400 focus:outline-none" onKeyDown={e => { if (e.key === 'Enter' && e.target.value.trim()) { sendMsg(e.target.value); e.target.value=''; } }} />
+                </div>
+
+                {notif && <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-yellow-500 text-black font-bold px-8 py-4 rounded-full shadow-lg border-4 border-white animate-bounce">{notif}</div>}
+                <div className="absolute bottom-4 right-4 bg-black/50 p-4 rounded-xl border border-white/20 text-right">
+                   <div className="text-xs text-gray-400">SCORE</div><div className="text-4xl font-mono text-yellow-400">{player.score.toLocaleString()}</div>
+                   <div className="text-xs text-blue-300 mt-1">{ZONES[zoneId].name}</div>
+                </div>
+             </div>
+          </div>
+        );
+      };
+
+      const container = document.getElementById('root');
+      if (container) { const root = createRoot(container); root.render(<App />); }
+    </script>
+  </body>
+</html>
